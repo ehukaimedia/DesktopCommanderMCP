@@ -7,6 +7,16 @@ const logDir = path.dirname(TOOL_CALL_FILE);
 await fs.promises.mkdir(logDir, { recursive: true });
 
 // Session and context tracking
+interface SearchOperation {
+  toolName: string;
+  query: string;
+  path: string;
+  timestamp: Date;
+  resultsCount?: number;
+  success: boolean;
+  intent?: string;
+}
+
 interface ContextState {
   lastCallTime?: Date;
   sessionId?: string;
@@ -14,11 +24,15 @@ interface ContextState {
   recentFiles: string[];
   toolSequence: string[];
   sessionStartTime?: Date;
+  recentSearches: SearchOperation[];
+  searchContext: Map<string, string>; // file -> reason for access
 }
 
 let contextState: ContextState = {
   recentFiles: [],
-  toolSequence: []
+  toolSequence: [],
+  recentSearches: [],
+  searchContext: new Map()
 };
 
 // Session timeout (15 minutes of inactivity starts new session)
@@ -27,6 +41,7 @@ const SESSION_TIMEOUT_MS = 15 * 60 * 1000;
 // Maximum items to track for context
 const MAX_RECENT_FILES = 10;
 const MAX_TOOL_SEQUENCE = 5;
+const MAX_RECENT_SEARCHES = 20;
 
 /**
  * Generate a simple session ID
@@ -126,6 +141,49 @@ function getProjectName(workingDir: string): string | undefined {
 }
 
 /**
+ * Capture search operation context
+ */
+function captureSearchOperation(toolName: string, args: any, timestamp: Date): SearchOperation | null {
+  if (!['search_files', 'search_code'].includes(toolName)) {
+    return null;
+  }
+  
+  const searchOp: SearchOperation = {
+    toolName,
+    query: '',
+    path: '',
+    timestamp,
+    success: false
+  };
+  
+  if (toolName === 'search_files' && args) {
+    searchOp.query = args.pattern || '';
+    searchOp.path = args.path || '';
+    searchOp.intent = `Searching for files matching "${searchOp.query}"`;
+  } else if (toolName === 'search_code' && args) {
+    searchOp.query = args.pattern || '';
+    searchOp.path = args.path || '';
+    searchOp.intent = `Searching code for pattern "${searchOp.query}"`;
+  }
+  
+  return searchOp;
+}
+
+/**
+ * Update search operation with results
+ */
+function updateSearchResults(searchOp: SearchOperation, success: boolean, resultsCount?: number): void {
+  searchOp.success = success;
+  searchOp.resultsCount = resultsCount;
+  
+  // Track in recent searches
+  contextState.recentSearches.push(searchOp);
+  if (contextState.recentSearches.length > MAX_RECENT_SEARCHES) {
+    contextState.recentSearches.shift();
+  }
+}
+
+/**
  * Track tool calls and save them to a log file with contextual information
  * @param toolName Name of the tool being called
  * @param args Arguments passed to the tool (optional)
@@ -152,6 +210,8 @@ export async function trackToolCall(toolName: string, args?: unknown): Promise<v
       contextState.sessionStartTime = timestamp;
       contextState.recentFiles = [];
       contextState.toolSequence = [];
+      contextState.recentSearches = [];
+      contextState.searchContext.clear();
     }
     
     // Update context state
@@ -161,6 +221,13 @@ export async function trackToolCall(toolName: string, args?: unknown): Promise<v
     contextState.toolSequence.push(toolName);
     if (contextState.toolSequence.length > MAX_TOOL_SEQUENCE) {
       contextState.toolSequence.shift();
+    }
+    
+    // Capture search operations for enhanced context
+    const searchOp = captureSearchOperation(toolName, args, timestamp);
+    if (searchOp) {
+      // For now, mark as successful - would need result feedback for accuracy
+      updateSearchResults(searchOp, true, 0);
     }
     
     // Extract and update working directory
@@ -212,6 +279,23 @@ export async function trackToolCall(toolName: string, args?: unknown): Promise<v
     
     if (filePaths.length > 0) {
       contextInfo.files = filePaths.map(f => path.basename(f));
+    }
+    
+    // Add search context if available
+    if (contextState.recentSearches.length > 0) {
+      const recentSearch = contextState.recentSearches[contextState.recentSearches.length - 1];
+      if (recentSearch.timestamp.getTime() === timestamp.getTime()) {
+        contextInfo.searchQuery = recentSearch.query;
+        contextInfo.searchIntent = recentSearch.intent;
+      }
+    }
+    
+    // Add recent search summary
+    if (contextState.recentSearches.length > 0) {
+      const searchSummary = contextState.recentSearches.slice(-3).map(s => 
+        `${s.toolName}:"${s.query}"`
+      ).join(', ');
+      contextInfo.recentSearches = searchSummary;
     }
     
     // Format the enhanced log entry

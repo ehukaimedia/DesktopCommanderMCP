@@ -17,6 +17,14 @@ interface SearchOperation {
   intent?: string;
 }
 
+interface EditContext {
+  file: string;
+  lineNumber?: number;
+  functionName?: string;
+  editType: 'create' | 'modify' | 'delete';
+  purpose: string;
+}
+
 interface ContextState {
   lastCallTime?: Date;
   sessionId?: string;
@@ -26,6 +34,7 @@ interface ContextState {
   sessionStartTime?: Date;
   recentSearches: SearchOperation[];
   searchContext: Map<string, string>; // file -> reason for access
+  lastEdit?: EditContext; // Most recent edit operation
 }
 
 let contextState: ContextState = {
@@ -141,6 +150,79 @@ function getProjectName(workingDir: string): string | undefined {
 }
 
 /**
+ * Extract edit context from tool operations
+ */
+function extractEditLocation(toolName: string, args: any): EditContext | null {
+  if (toolName === 'edit_block' && args) {
+    return {
+      file: args.file_path || '',
+      editType: 'modify',
+      purpose: inferEditPurpose(args.old_string, args.new_string)
+    };
+  }
+  
+  if (toolName === 'write_file' && args) {
+    return {
+      file: args.path || '',
+      editType: args.mode === 'append' ? 'modify' : 'create',
+      purpose: 'File creation/modification'
+    };
+  }
+  
+  return null;
+}
+
+/**
+ * Infer edit purpose from content changes
+ */
+function inferEditPurpose(oldString?: string, newString?: string): string {
+  if (!oldString || !newString) return 'Content modification';
+  
+  if (newString.includes('interface') && !oldString.includes('interface')) {
+    return 'Adding interface definition';
+  }
+  if (newString.includes('function') && !oldString.includes('function')) {
+    return 'Adding function implementation';
+  }
+  if (newString.includes('import') && !oldString.includes('import')) {
+    return 'Adding import statement';
+  }
+  if (newString.length > oldString.length * 1.5) {
+    return 'Expanding functionality';
+  }
+  if (newString.length < oldString.length * 0.5) {
+    return 'Refactoring/simplifying code';
+  }
+  
+  return 'Code modification';
+}
+
+/**
+ * Infer current task from tool sequence and context
+ */
+function inferCurrentTask(toolSequence: string[], recentFiles: string[]): string {
+  const sequence = toolSequence.join(' → ');
+  
+  if (sequence.includes('search_code → read_file → edit_block')) {
+    return 'Debugging and fixing code based on search results';
+  }
+  if (sequence.includes('read_file → edit_block')) {
+    return 'Modifying existing code';
+  }
+  if (sequence.includes('create_directory → write_file')) {
+    return 'Setting up new project structure';
+  }
+  if (sequence.includes('execute_command')) {
+    return 'Running tests/builds and validating changes';
+  }
+  if (sequence.includes('search_files') || sequence.includes('search_code')) {
+    return 'Investigating codebase and exploring files';
+  }
+  
+  return 'General development work';
+}
+
+/**
  * Capture search operation context
  */
 function captureSearchOperation(toolName: string, args: any, timestamp: Date): SearchOperation | null {
@@ -230,6 +312,12 @@ export async function trackToolCall(toolName: string, args?: unknown): Promise<v
       updateSearchResults(searchOp, true, 0);
     }
     
+    // Capture edit operations for session recovery
+    const editContext = extractEditLocation(toolName, args);
+    if (editContext) {
+      contextState.lastEdit = editContext;
+    }
+    
     // Extract and update working directory
     const workingDir = extractWorkingDirectory(args);
     if (workingDir) {
@@ -288,6 +376,20 @@ export async function trackToolCall(toolName: string, args?: unknown): Promise<v
         contextInfo.searchQuery = recentSearch.query;
         contextInfo.searchIntent = recentSearch.intent;
       }
+    }
+    
+    // Add edit context if available
+    if (contextState.lastEdit) {
+      contextInfo.lastEdit = {
+        file: path.basename(contextState.lastEdit.file),
+        editType: contextState.lastEdit.editType,
+        purpose: contextState.lastEdit.purpose
+      };
+    }
+    
+    // Add inferred current task
+    if (contextState.toolSequence.length >= 2) {
+      contextInfo.currentTask = inferCurrentTask(contextState.toolSequence, contextState.recentFiles);
     }
     
     // Add recent search summary

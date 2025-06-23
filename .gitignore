@@ -41,3 +41,6 @@ server.log
 # Backup files
 *.backup
 *.backup.*
+*.backup-*
+**/trackTools.ts.backup*
+REMOTE_UPDATE_*.md

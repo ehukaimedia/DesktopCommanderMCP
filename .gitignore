@@ -37,3 +37,7 @@ coverage/
 .history
 
 server.log
+
+# Backup files
+*.backup
+*.backup.*

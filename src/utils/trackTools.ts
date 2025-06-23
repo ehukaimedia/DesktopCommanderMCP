@@ -25,6 +25,14 @@ interface EditContext {
   purpose: string;
 }
 
+interface IntentSignals {
+  trigger: 'error_response' | 'exploration' | 'planned_work' | 'maintenance';
+  confidence: number; // 0-1 confidence score
+  evidence: string[]; // What led to this conclusion
+  likely_goal: string; // Inferred purpose
+  category: 'reactive' | 'proactive' | 'investigative' | 'maintenance';
+}
+
 interface ContextState {
   lastCallTime?: Date;
   sessionId?: string;
@@ -35,13 +43,21 @@ interface ContextState {
   recentSearches: SearchOperation[];
   searchContext: Map<string, string>; // file -> reason for access
   lastEdit?: EditContext; // Most recent edit operation
+  // Intent detection fields - THIS FIXES THE ROOT CAUSE
+  recentArgs: any[]; // Store recent arguments for pattern analysis
+  intentSignals: IntentSignals[];
+  workPattern: 'reactive' | 'proactive' | 'investigative' | 'maintenance';
 }
 
 let contextState: ContextState = {
   recentFiles: [],
   toolSequence: [],
   recentSearches: [],
-  searchContext: new Map()
+  searchContext: new Map(),
+  // Intent detection state
+  recentArgs: [],
+  intentSignals: [],
+  workPattern: 'proactive'
 };
 
 // Session timeout (15 minutes of inactivity starts new session)
@@ -51,6 +67,11 @@ const SESSION_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_RECENT_FILES = 10;
 const MAX_TOOL_SEQUENCE = 5;
 const MAX_RECENT_SEARCHES = 20;
+
+// Intent detection constants
+const MAX_INTENT_SIGNALS = 5;
+const MAX_RECENT_ARGS = 15;
+const INTENT_CONFIDENCE_THRESHOLD = 0.35;
 
 /**
  * Generate a simple session ID
@@ -265,6 +286,284 @@ function updateSearchResults(searchOp: SearchOperation, success: boolean, result
   }
 }
 
+// =============================================================================
+// Intent Detection Algorithms
+// =============================================================================
+
+/**
+ * Detect error-driven reactive work patterns
+ */
+function detectErrorDrivenWork(
+  toolSequence: string[], 
+  recentArgs: any[], 
+  recentFiles: string[], 
+  recentExecutions: Array<{command: string, timestamp: Date}>
+): IntentSignals | null {
+  const evidence: string[] = [];
+  let confidence = 0;
+
+  // Check for error-related search terms
+  const errorKeywords = ['error', 'bug', 'fail', 'undefined', 'null', 'exception', 'crash', 'broken'];
+  const searchTerms = recentArgs
+    .filter(args => args && (args.pattern || args.query))
+    .map(args => (args.pattern || args.query).toLowerCase());
+
+  for (const term of searchTerms) {
+    if (errorKeywords.some(keyword => term.includes(keyword))) {
+      evidence.push(`Error-related search term: "${term}"`);
+      confidence += 0.3;
+    }
+  }
+
+  // Check for debugging sequence patterns
+  const sequence = toolSequence.join(' → ');
+  if (sequence.includes('search_code → read_file → edit_block')) {
+    evidence.push('Debugging workflow: search → read → edit');
+    confidence += 0.25;
+  }
+
+  // Check for test files or error logs
+  const hasTestFiles = recentFiles.some(f => 
+    f.includes('test') || f.includes('spec') || f.includes('.log')
+  );
+  if (hasTestFiles) {
+    evidence.push('Working with test files or logs');
+    confidence += 0.15;
+  }
+
+  // Check for failed commands (if we had execution results)
+  if (recentExecutions.some(exec => exec.command.includes('test'))) {
+    evidence.push('Recent test command execution');
+    confidence += 0.2;
+  }
+
+  if (confidence >= 0.25) {
+    return {
+      trigger: 'error_response',
+      confidence: Math.min(confidence, 0.9),
+      evidence,
+      likely_goal: 'Debug and fix identified error or test failure',
+      category: 'reactive'
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Detect planned development work patterns
+ */
+function detectPlannedDevelopment(
+  toolSequence: string[], 
+  recentArgs: any[], 
+  recentFiles: string[], 
+  recentExecutions: Array<{command: string, timestamp: Date}>
+): IntentSignals | null {
+  const evidence: string[] = [];
+  let confidence = 0;
+
+  // Check for type definition files
+  const hasTypeFiles = recentFiles.some(f => 
+    f.includes('types.') || f.includes('interface') || f.includes('.d.ts')
+  );
+  if (hasTypeFiles) {
+    evidence.push('Working with type definitions');
+    confidence += 0.3;
+  }
+
+  // Check for new file creation patterns
+  const hasFileCreation = toolSequence.some(tool => 
+    tool === 'create_directory' || tool === 'write_file'
+  );
+  if (hasFileCreation) {
+    evidence.push('Creating new files/directories');
+    confidence += 0.25;
+  }
+
+  // Check for systematic approach (multiple related files)
+  if (recentFiles.length >= 3) {
+    const extensions = recentFiles.map(f => f.split('.').pop()).filter(Boolean);
+    const uniqueExtensions = new Set(extensions);
+    if (uniqueExtensions.size >= 2) {
+      evidence.push('Working across multiple file types systematically');
+      confidence += 0.2;
+    }
+  }
+
+  // Check for setup/configuration work
+  const hasConfigWork = recentFiles.some(f => 
+    f.includes('config') || f.includes('package.json') || f.includes('tsconfig')
+  );
+  if (hasConfigWork) {
+    evidence.push('Configuration and setup work');
+    confidence += 0.15;
+  }
+
+  if (confidence >= 0.25) {
+    return {
+      trigger: 'planned_work',
+      confidence: Math.min(confidence, 0.9),
+      evidence,
+      likely_goal: 'Implement new feature following planned approach',
+      category: 'proactive'
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Detect exploratory investigation patterns
+ */
+function detectExploratoryWork(
+  toolSequence: string[], 
+  recentArgs: any[], 
+  recentFiles: string[], 
+  recentExecutions: Array<{command: string, timestamp: Date}>
+): IntentSignals | null {
+  const evidence: string[] = [];
+  let confidence = 0;
+
+  // Check for high read-to-edit ratio
+  const readOperations = toolSequence.filter(tool => 
+    tool === 'read_file' || tool === 'list_directory' || tool === 'search_files'
+  ).length;
+  const editOperations = toolSequence.filter(tool => 
+    tool === 'edit_block' || tool === 'write_file'
+  ).length;
+
+  if (readOperations >= 3 && editOperations <= 1) {
+    evidence.push(`High exploration ratio: ${readOperations} reads, ${editOperations} edits`);
+    confidence += 0.3;
+  }
+
+  // Check for directory traversal patterns
+  const hasDirectoryExploration = toolSequence.filter(tool => 
+    tool === 'list_directory'
+  ).length >= 2;
+  if (hasDirectoryExploration) {
+    evidence.push('Multiple directory explorations');
+    confidence += 0.25;
+  }
+
+  // Check for search patterns without immediate editing
+  const searchCount = toolSequence.filter(tool => 
+    tool === 'search_code' || tool === 'search_files'
+  ).length;
+  if (searchCount >= 2) {
+    evidence.push('Multiple search operations');
+    confidence += 0.2;
+  }
+
+  // Check for diverse file access
+  if (recentFiles.length >= 4) {
+    evidence.push(`Exploring multiple files: ${recentFiles.length} files accessed`);
+    confidence += 0.15;
+  }
+
+  if (confidence >= 0.25) {
+    return {
+      trigger: 'exploration',
+      confidence: Math.min(confidence, 0.9),
+      evidence,
+      likely_goal: 'Understand codebase structure and identify areas of interest',
+      category: 'investigative'
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Detect maintenance and refactoring patterns
+ */
+function detectMaintenanceWork(
+  toolSequence: string[], 
+  recentArgs: any[], 
+  recentFiles: string[], 
+  recentExecutions: Array<{command: string, timestamp: Date}>
+): IntentSignals | null {
+  const evidence: string[] = [];
+  let confidence = 0;
+
+  // Check for multiple small edits
+  const editCount = toolSequence.filter(tool => tool === 'edit_block').length;
+  if (editCount >= 3) {
+    evidence.push(`Multiple edits: ${editCount} edit operations`);
+    confidence += 0.3;
+  }
+
+  // Check for dependency/package work
+  const hasDependencyWork = recentFiles.some(f => 
+    f.includes('package.json') || f.includes('yarn.lock') || f.includes('node_modules')
+  );
+  if (hasDependencyWork) {
+    evidence.push('Working with dependencies');
+    confidence += 0.25;
+  }
+
+  // Check for config file modifications
+  const hasConfigWork = recentFiles.some(f => 
+    f.includes('config') || f.includes('.json') || f.includes('.yml') || f.includes('.yaml')
+  );
+  if (hasConfigWork) {
+    evidence.push('Configuration file modifications');
+    confidence += 0.2;
+  }
+
+  // Check for build/test commands
+  const hasBuildCommands = recentExecutions.some(exec => 
+    exec.command.includes('build') || exec.command.includes('npm') || exec.command.includes('yarn')
+  );
+  if (hasBuildCommands) {
+    evidence.push('Build or package management commands');
+    confidence += 0.15;
+  }
+
+  if (confidence >= 0.25) {
+    return {
+      trigger: 'maintenance',
+      confidence: Math.min(confidence, 0.9),
+      evidence,
+      likely_goal: 'Perform maintenance, refactoring, or optimization tasks',
+      category: 'maintenance'
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Main intent detection function that runs all detectors
+ */
+function detectIntentSignals(
+  toolSequence: string[], 
+  recentArgs: any[], 
+  recentFiles: string[],
+  recentExecutions: Array<{command: string, timestamp: Date}>
+): IntentSignals | null {
+  // Run all detection algorithms
+  const detectors = [
+    detectErrorDrivenWork,
+    detectPlannedDevelopment,
+    detectExploratoryWork,
+    detectMaintenanceWork
+  ];
+
+  let bestIntent: IntentSignals | null = null;
+  let bestConfidence = 0;
+
+  for (const detector of detectors) {
+    const intent = detector(toolSequence, recentArgs, recentFiles, recentExecutions);
+    if (intent && intent.confidence > bestConfidence && intent.confidence >= INTENT_CONFIDENCE_THRESHOLD) {
+      bestIntent = intent;
+      bestConfidence = intent.confidence;
+    }
+  }
+
+  return bestIntent;
+}
+
 /**
  * Track tool calls and save them to a log file with contextual information
  * @param toolName Name of the tool being called
@@ -294,10 +593,22 @@ export async function trackToolCall(toolName: string, args?: unknown): Promise<v
       contextState.toolSequence = [];
       contextState.recentSearches = [];
       contextState.searchContext.clear();
+      // Reset intent detection state for new session
+      contextState.recentArgs = [];
+      contextState.intentSignals = [];
+      contextState.workPattern = 'proactive';
     }
     
     // Update context state
     contextState.lastCallTime = timestamp;
+    
+    // CRITICAL: Track recent arguments for intent detection (FIXES ROOT CAUSE)
+    if (args) {
+      contextState.recentArgs.push(args);
+      if (contextState.recentArgs.length > MAX_RECENT_ARGS) {
+        contextState.recentArgs.shift();
+      }
+    }
     
     // Track tool sequence (keep last N tools)
     contextState.toolSequence.push(toolName);
@@ -398,6 +709,37 @@ export async function trackToolCall(toolName: string, args?: unknown): Promise<v
         `${s.toolName}:"${s.query}"`
       ).join(', ');
       contextInfo.recentSearches = searchSummary;
+    }
+    
+    // =============================================================================
+    // INTENT DETECTION INTEGRATION - The core intelligence
+    // =============================================================================
+    
+    // Detect intent when we have enough context (2+ tools)
+    if (contextState.toolSequence.length >= 2) {
+      const intentSignal = detectIntentSignals(
+        contextState.toolSequence,
+        contextState.recentArgs.filter(Boolean), // Filter out null/undefined args
+        contextState.recentFiles,
+        [] // Recent executions - would need command result feedback for full functionality
+      );
+      
+      if (intentSignal && intentSignal.confidence >= INTENT_CONFIDENCE_THRESHOLD) {
+        // Store intent signal
+        contextState.intentSignals.push(intentSignal);
+        if (contextState.intentSignals.length > MAX_INTENT_SIGNALS) {
+          contextState.intentSignals.shift();
+        }
+        
+        // Update work pattern
+        contextState.workPattern = intentSignal.category;
+        
+        // Add intent information to context
+        contextInfo.intent = intentSignal.likely_goal;
+        contextInfo.intentConfidence = Math.round(intentSignal.confidence * 100);
+        contextInfo.workPattern = intentSignal.category;
+        contextInfo.intentEvidence = intentSignal.evidence;
+      }
     }
     
     // Format the enhanced log entry

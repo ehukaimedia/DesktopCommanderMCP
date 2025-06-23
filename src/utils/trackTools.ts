@@ -1,3 +1,49 @@
+/**
+ * Enhanced Tool Call Tracking with Intelligent Intent Detection
+ * 
+ * This module transforms DesktopCommanderMCP from basic tool tracking into an intelligent
+ * development assistant that understands WHY users work, not just WHAT tools they use.
+ * 
+ * @overview
+ * The intent detection system analyzes patterns in tool usage, arguments, and sequences
+ * to identify developer intentions with confidence scoring and evidence-based explanations.
+ * 
+ * @features
+ * - 4 Intent Detection Algorithms: Error-driven, planned development, exploratory, maintenance
+ * - Evidence-Based Analysis: Clear explanations for detected patterns
+ * - Confidence Scoring: 25-90% confidence with transparent reasoning
+ * - Session-Aware Context: Maintains state across related activities
+ * - Real-time Integration: Seamless enhancement without breaking existing functionality
+ * 
+ * @algorithms
+ * 1. Error-Driven Detection: Identifies debugging workflows from search patterns and file access
+ * 2. Planned Development: Recognizes systematic feature implementation with type definitions
+ * 3. Exploratory Investigation: Detects learning and discovery activities via read patterns
+ * 4. Maintenance Work: Spots refactoring and optimization through edit patterns
+ * 
+ * @confidenceScoring
+ * - 0.25-0.40: Low confidence, basic pattern detected
+ * - 0.41-0.65: Medium confidence, clear pattern with supporting evidence
+ * - 0.66-0.85: High confidence, strong pattern with multiple evidence points
+ * - 0.86-0.90: Very high confidence, unmistakable pattern (capped at 90%)
+ * 
+ * @usage
+ * Enhanced logs include intent data:
+ * ```json
+ * {
+ *   "intent": "Debug and fix identified error or test failure",
+ *   "intentConfidence": 75,
+ *   "workPattern": "reactive",
+ *   "intentEvidence": ["Error-related search term: \"undefined\"", "Working with test files"]
+ * }
+ * ```
+ * 
+ * @author ehukaimedia
+ * @version 2.0.0
+ * @since 1.0.0 - Basic tool tracking
+ * @since 2.0.0 - Revolutionary intent detection system
+ */
+
 import * as fs from 'fs';
 import * as path from 'path';
 import { TOOL_CALL_FILE, TOOL_CALL_FILE_MAX_SIZE } from '../config.js';
@@ -6,7 +52,13 @@ import { TOOL_CALL_FILE, TOOL_CALL_FILE_MAX_SIZE } from '../config.js';
 const logDir = path.dirname(TOOL_CALL_FILE);
 await fs.promises.mkdir(logDir, { recursive: true });
 
-// Session and context tracking
+// =============================================================================
+// INTENT DETECTION INTERFACES
+// =============================================================================
+
+/**
+ * Represents a search operation with intent analysis capabilities
+ */
 interface SearchOperation {
   toolName: string;
   query: string;
@@ -17,6 +69,9 @@ interface SearchOperation {
   intent?: string;
 }
 
+/**
+ * Context information for edit operations to enable session recovery
+ */
 interface EditContext {
   file: string;
   lineNumber?: number;
@@ -25,6 +80,16 @@ interface EditContext {
   purpose: string;
 }
 
+/**
+ * Core intent detection result with confidence scoring and evidence
+ * 
+ * @interface IntentSignals
+ * @property {string} trigger - What triggered this intent detection
+ * @property {number} confidence - Confidence score (0-1, will be converted to percentage)
+ * @property {string[]} evidence - Array of evidence strings explaining the detection
+ * @property {string} likely_goal - Human-readable description of detected intent
+ * @property {string} category - Work pattern classification
+ */
 interface IntentSignals {
   trigger: 'error_response' | 'exploration' | 'planned_work' | 'maintenance';
   confidence: number; // 0-1 confidence score
@@ -33,6 +98,12 @@ interface IntentSignals {
   category: 'reactive' | 'proactive' | 'investigative' | 'maintenance';
 }
 
+/**
+ * Enhanced context state with intent detection capabilities
+ * 
+ * This interface extends the basic context tracking to include sophisticated
+ * intent detection state management across tool calls and sessions.
+ */
 interface ContextState {
   lastCallTime?: Date;
   sessionId?: string;
@@ -43,9 +114,10 @@ interface ContextState {
   recentSearches: SearchOperation[];
   searchContext: Map<string, string>; // file -> reason for access
   lastEdit?: EditContext; // Most recent edit operation
-  // Intent detection fields - THIS FIXES THE ROOT CAUSE
-  recentArgs: any[]; // Store recent arguments for pattern analysis
-  intentSignals: IntentSignals[];
+  
+  // Intent detection fields - Critical for pattern analysis across tool calls
+  recentArgs: any[]; // Store recent arguments for cross-call pattern detection
+  intentSignals: IntentSignals[]; // Historical intent signals for refinement
   workPattern: 'reactive' | 'proactive' | 'investigative' | 'maintenance';
 }
 
@@ -291,7 +363,33 @@ function updateSearchResults(searchOp: SearchOperation, success: boolean, result
 // =============================================================================
 
 /**
- * Detect error-driven reactive work patterns
+ * Detects error-driven reactive work patterns
+ * 
+ * Analyzes recent tool usage to identify debugging workflows triggered by errors,
+ * test failures, or investigation of undefined behavior.
+ * 
+ * @algorithm
+ * 1. Scans recent search terms for error-related keywords
+ * 2. Identifies debugging workflow patterns (search → read → edit)
+ * 3. Detects work with test files, logs, or error reports
+ * 4. Checks for recent test command execution
+ * 
+ * @confidenceFactors
+ * - Error keywords in search: +0.3 per term
+ * - Debugging workflow sequence: +0.25
+ * - Test/log file access: +0.15
+ * - Recent test commands: +0.2
+ * - Threshold: 0.25 minimum confidence
+ * 
+ * @param {string[]} toolSequence - Recent sequence of tool calls
+ * @param {any[]} recentArgs - Arguments from recent tool calls for pattern analysis
+ * @param {string[]} recentFiles - Files accessed in current session
+ * @param {Array} recentExecutions - Recent command executions with timestamps
+ * @returns {IntentSignals|null} Intent detection result or null if no pattern found
+ * 
+ * @example
+ * // Triggered by: search_code("undefined") → read_file("test.js") → edit_block(...)
+ * // Returns: { confidence: 0.75, likely_goal: "Debug and fix identified error", category: "reactive" }
  */
 function detectErrorDrivenWork(
   toolSequence: string[], 
@@ -351,7 +449,33 @@ function detectErrorDrivenWork(
 }
 
 /**
- * Detect planned development work patterns
+ * Detects planned development work patterns
+ * 
+ * Identifies systematic feature implementation through type definitions,
+ * file creation patterns, and organized development approaches.
+ * 
+ * @algorithm
+ * 1. Detects work with type definition files (.d.ts, interfaces)
+ * 2. Identifies new file/directory creation patterns
+ * 3. Analyzes systematic cross-file-type development
+ * 4. Recognizes configuration and setup activities
+ * 
+ * @confidenceFactors
+ * - Type definition work: +0.3
+ * - File/directory creation: +0.25
+ * - Multi-file-type systematic work: +0.2
+ * - Configuration changes: +0.15
+ * - Threshold: 0.25 minimum confidence
+ * 
+ * @param {string[]} toolSequence - Recent sequence of tool calls
+ * @param {any[]} recentArgs - Arguments from recent tool calls
+ * @param {string[]} recentFiles - Files accessed in current session
+ * @param {Array} recentExecutions - Recent command executions
+ * @returns {IntentSignals|null} Intent detection result or null if no pattern found
+ * 
+ * @example
+ * // Triggered by: create_directory → write_file("types.ts") → write_file("component.tsx")
+ * // Returns: { confidence: 0.68, likely_goal: "Implement new feature following planned approach", category: "proactive" }
  */
 function detectPlannedDevelopment(
   toolSequence: string[], 
@@ -565,9 +689,60 @@ function detectIntentSignals(
 }
 
 /**
- * Track tool calls and save them to a log file with contextual information
- * @param toolName Name of the tool being called
- * @param args Arguments passed to the tool (optional)
+ * Enhanced tool call tracking with intelligent intent detection
+ * 
+ * This is the main function that transforms DesktopCommanderMCP from basic tool tracking
+ * into an intelligent development assistant that understands user intentions.
+ * 
+ * @overview
+ * Each tool call is analyzed for intent patterns using 4 sophisticated algorithms:
+ * 1. Error-driven debugging detection
+ * 2. Planned development recognition  
+ * 3. Exploratory investigation identification
+ * 4. Maintenance work pattern detection
+ * 
+ * @process
+ * 1. Session Management: Detects new sessions based on 15-minute timeout
+ * 2. Context Accumulation: Builds recent args, files, and tool sequences
+ * 3. Pattern Analysis: Runs intent detection when sufficient context exists (2+ tools)
+ * 4. Enhanced Logging: Outputs contextual information with intent data
+ * 5. File Rotation: Manages log file size with automatic rotation
+ * 
+ * @intentThreshold
+ * Intent detection requires:
+ * - Minimum 2 tool calls for pattern analysis
+ * - Confidence threshold of 35% (0.35)
+ * - Evidence-based explanations for transparency
+ * 
+ * @logFormat
+ * Enhanced logs include intent data when detected:
+ * ```
+ * timestamp | toolName | {
+ *   "session": "sessionId",
+ *   "intent": "Debug and fix identified error or test failure",
+ *   "intentConfidence": 75,
+ *   "workPattern": "reactive",
+ *   "intentEvidence": ["Error-related search term", "Working with test files"]
+ * } | Args: {...}
+ * ```
+ * 
+ * @param {string} toolName - Name of the tool being called
+ * @param {unknown} args - Arguments passed to the tool (optional, used for pattern analysis)
+ * @returns {Promise<void>} Async operation, logs enhanced data to file
+ * 
+ * @throws {Error} Logs errors to capture service, does not throw to avoid breaking tool execution
+ * 
+ * @example
+ * ```typescript
+ * // Each tool call automatically gets intent analysis
+ * await trackToolCall('search_code', { pattern: 'undefined', path: './src' });
+ * // Accumulates context for intent detection on subsequent calls
+ * await trackToolCall('read_file', { path: './src/buggy-file.js' });
+ * // Triggers intent detection: "Debug and fix identified error" with evidence
+ * ```
+ * 
+ * @since 1.0.0 - Basic tool tracking
+ * @since 2.0.0 - Revolutionary intent detection system
  */
 export async function trackToolCall(toolName: string, args?: unknown): Promise<void> {
   try {

@@ -1,15 +1,54 @@
-# Desktop Commander MCP
-### Search, update, manage files and run terminal commands with AI
+# Desktop Commander MCP - Enhanced with Intelligent Intent Detection
+
+> 🧠 **This is the enhanced version of DesktopCommanderMCP with revolutionary intent detection capabilities.**
+> 
+> **What's New:** Advanced pattern analysis that understands WHY you work, not just WHAT tools you use. Provides intelligent insights about your development intentions with confidence scoring and evidence-based explanations.
+
+### Search, update, manage files and run terminal commands with AI + Intelligent Intent Detection
 
 [![npm downloads](https://img.shields.io/npm/dw/@wonderwhy-er/desktop-commander)](https://www.npmjs.com/package/@wonderwhy-er/desktop-commander)
 [![smithery badge](https://smithery.ai/badge/@wonderwhy-er/desktop-commander)](https://smithery.ai/server/@wonderwhy-er/desktop-commander)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow.svg)](https://www.buymeacoffee.com/wonderwhyer)
 
-
 [![Discord](https://img.shields.io/badge/Join%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/kQ27sNnZr7)
 
+Work with code and text, run processes, and automate tasks, going far beyond other AI editors - **now with intelligent productivity analysis** - without API token costs.
 
-Work with code and text, run processes, and automate tasks, going far beyond other AI editors - without API token costs.
+## 🎯 Enhanced Features in This Fork
+
+### **Intelligent Intent Detection System**
+- **4 Detection Algorithms:** Error-driven debugging, planned development, exploratory investigation, maintenance work
+- **Confidence Scoring:** 25-90% confidence with transparent reasoning
+- **Evidence-Based Analysis:** Clear explanations for detected patterns
+- **Real-time Integration:** Seamless enhancement without breaking existing functionality
+
+### **Enhanced Logging Format**
+Enhanced logs now include intelligent context:
+```json
+{
+  "timestamp": "2025-06-22T20:42:38.692Z",
+  "tool": "search_code", 
+  "context": {
+    "session": "mc84wf6s_u7w54r",
+    "intent": "Debug and fix identified error or test failure",
+    "intentConfidence": 75,
+    "workPattern": "reactive",
+    "intentEvidence": ["Error-related search term: \"undefined\"", "Working with test files"],
+    "project": "E-commerce API",
+    "workflow": "DEBUGGING"
+  }
+}
+```
+
+### **Companion Recap Tool**
+Use with [RecapMCP](https://github.com/ehukaimedia/recap) to transform enhanced logs into intelligent productivity insights that show your development intentions in natural language.
+
+## 🔄 Relationship to Original
+
+**Forked from:** [wonderwhy-er/DesktopCommanderMCP](https://github.com/wonderwhy-er/DesktopCommanderMCP)  
+**Enhancement:** Adds intelligent intent detection to the original tool's excellent foundation  
+**Compatibility:** 100% backwards compatible with original functionality  
+**Branch:** `contextual-logging` contains the enhanced version
 
 
 ![Desktop Commander MCP](https://raw.githubusercontent.com/wonderwhy-er/ClaudeComputerCommander/main/docs/vertical_video_mobile.mp4)

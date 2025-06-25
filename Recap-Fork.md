@@ -2,6 +2,8 @@
 
 > **Revolutionary productivity analysis that understands WHY you work, not just WHAT tools you use.**
 
+**🎉 UPDATE: RecapMCP v3.0.0 Released!** The companion tool now features zero-configuration unified intelligence mode. Just type `recap` - no parameters needed!
+
 ## Overview
 
 This enhanced version of DesktopCommanderMCP adds intelligent intent detection capabilities that analyze your development patterns to understand your work intentions with confidence scoring and evidence-based explanations.
@@ -88,49 +90,51 @@ The enhanced version outputs rich contextual data:
 }
 ```
 
-## 🔗 Companion Tool: RecapMCP
+## 🔗 Companion Tool: RecapMCP v3.0.0
 
-The enhanced DesktopCommanderMCP works seamlessly with **[RecapMCP](https://github.com/ehukaimedia/recap)** - a professional Model Context Protocol server that transforms your enhanced logs into intelligent productivity insights.
+The enhanced DesktopCommanderMCP works seamlessly with **[RecapMCP](https://github.com/ehukaimedia/recap)** - a zero-configuration MCP server that provides intelligent work recovery with just one command.
 
 ### Repository: [github.com/ehukaimedia/recap](https://github.com/ehukaimedia/recap)
 
-**RecapMCP Features:**
-- **Intelligent Intent Analysis** - Reads enhanced logs and provides contextual summaries
-- **Session Pattern Recognition** - Groups related work activities into meaningful sessions
-- **Project Context Awareness** - Understands your development projects and workflow patterns
-- **Confidence-Based Insights** - Leverages intent detection confidence scores for accurate analysis
-- **Evidence Transparency** - Shows exactly why it detected specific work patterns
+**RecapMCP v3.0.0 - Unified Intelligence Mode:**
+- **Zero Configuration** - Just type `recap`, no parameters needed
+- **Intelligent Adaptation** - Output automatically adjusts to your context
+- **Visual Excellence** - File heatmaps, progress bars, and clear hierarchy
+- **Intent Analysis** - Shows what you were doing with confidence percentage
+- **Instant Resume** - Actionable commands ready to copy and continue
 
 **Example RecapMCP Output:**
 ```
-🔄 CONTEXTUAL RECAP
-══════════════════════════════════════════════════
-📅 Time Range: Today, 9:00 AM → just now
-⚡ Activity: 23 tool calls across 2 sessions
+⚠️ WORK CONTEXT • E-commerce API • 45m ago • 80%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📊 RECENT SESSIONS
+🎯 WHAT YOU WERE DOING
+Debugging JWT authentication error (85% sure)
 
-**Session abc123** (45m) - 2h ago
-  Project: E-commerce API
-  Workflows: DEBUGGING, EDITING
-  🧠 Intent: Debug and fix identified error or test failure (reactive) 75%
-  Evidence: Error-related search terms, Working with test files
-  Files: server.js, auth.middleware.js, tests/
-  Operations: 15 tools
+📍 WHERE YOU ARE NOW
+Left off in /auth after editing middleware.js
 
-**Session def456** (12m) - 30m ago
-  Project: Database Migration  
-  Workflows: SETUP
-  🧠 Intent: Implement new feature following planned approach (proactive) 68%
-  Evidence: Working with type definitions, Creating new files systematically
-  Files: migration_001.sql, config.yml
-  Operations: 8 tools
+🔍 INVESTIGATION TRAIL
+"undefined" → "undefined token" → "jwt undefined" ✓
 
-🎯 NARRATIVE SUMMARY
-Worked for 57 minutes across 2 focused sessions. Primary focus: 
-E-commerce API development. Main activity: DEBUGGING workflow. 
-Touched 8 files. Started with reactive debugging work, then moved 
-to planned development tasks.
+🔥 ACTIVE FILES
+middleware.js    ████████ 8x (R:5 W:3) • Focus area
+auth.test.js     ████     4x (R:4)     • Needs: test
+jwt-utils.js     ██       2x (R:2)     • Reference
+
+📝 RECENT CHANGES
+middleware.js (45m ago)
++ Added null check validation (+87 chars)
+
+⚠️ NEEDS ATTENTION
+• 1 uncommitted file
+• middleware.js edited but not tested
+
+⚡ RESUME INSTANTLY
+│ cd /Users/dev/ecommerce-api/src/auth
+│ npm test middleware.test.js
+│ git add middleware.js
+│ git commit -m "fix: Add JWT null check validation"
 ```
 
 ### Two-Repository Ecosystem
@@ -138,9 +142,9 @@ to planned development tasks.
 This creates a powerful two-repository ecosystem:
 
 1. **[DesktopCommanderMCP-Recap](https://github.com/ehukaimedia/DesktopCommanderMCP-Recap)** - Enhanced logging with intent detection
-2. **[RecapMCP](https://github.com/ehukaimedia/recap)** - Intelligent analysis and productivity insights
+2. **[RecapMCP v3.0.0](https://github.com/ehukaimedia/recap)** - Zero-configuration intelligent work recovery
 
-Together, they transform basic tool tracking into a comprehensive productivity intelligence system.
+Together, they transform basic tool tracking into instant context recovery with no setup required.
 
 ## 🚀 Complete Installation & Setup
 
@@ -156,15 +160,18 @@ cd DesktopCommanderMCP-Recap
 npm install && npm run build
 ```
 
-#### Step 2: Install RecapMCP (Analysis & Insights Engine)
+#### Step 2: Install RecapMCP v3.0.0 (Zero-Configuration Work Recovery)
 
+```bash
+npm install -g @ehukaimedia/recap-mcp
+```
+
+Or clone and build:
 ```bash
 git clone https://github.com/ehukaimedia/recap.git
 cd recap
-npm install && npm run setup
+npm install && npm run build
 ```
-
-**Note**: RecapMCP's automated setup will configure both tools in Claude Desktop automatically.
 
 #### Step 3: Verify Claude Desktop Configuration
 
@@ -196,9 +203,9 @@ Both enhanced logging and intelligent analysis will be available immediately.
 ### Usage After Installation
 
 1. **Work normally with Claude Desktop** - Enhanced logging happens automatically
-2. **Get intelligent insights** - Ask: "Can you give me a recap of my recent work?"
-3. **View intent detection** - Enhanced logs show detected work patterns in real-time
-4. **Analyze productivity patterns** - Use RecapMCP to understand your development workflow
+2. **Get instant context recovery** - Just type: `recap`
+3. **No configuration needed** - RecapMCP v3.0.0 intelligently adapts to your needs
+4. **Resume work immediately** - Copy the suggested commands and continue
 
 ## 🛠️ Technical Implementation
 
@@ -254,11 +261,11 @@ This enhanced DesktopCommanderMCP is part of a comprehensive two-repository prod
    - **Output**: Rich contextual logs with intent data, confidence scores, and evidence
    - **Status**: Production-ready enhancement of original DesktopCommanderMCP
 
-2. **[RecapMCP](https://github.com/ehukaimedia/recap)** (Companion Analysis Tool)
-   - **Purpose**: Professional MCP server for productivity insights and analysis
-   - **Core Feature**: Transforms enhanced logs into intelligent productivity summaries
-   - **Output**: Contextual recaps, session analysis, and workflow pattern recognition
-   - **Status**: Standalone MCP tool that reads and analyzes enhanced log data
+2. **[RecapMCP v3.0.0](https://github.com/ehukaimedia/recap)** (Zero-Configuration Work Recovery)
+   - **Purpose**: Instant context recovery with unified intelligence mode
+   - **Core Feature**: Just type `recap` - no parameters or configuration needed
+   - **Output**: Adaptive intelligent summaries that match your work context
+   - **Status**: Simplified v3.0.0 with 70% less code but superior functionality
 
 ### How They Work Together
 
@@ -281,15 +288,15 @@ Enhanced logs with intent data    Intelligent productivity recaps
 1. **Tool Execution** → DesktopCommanderMCP-Recap captures calls
 2. **Intent Detection** → 4 algorithms analyze patterns in real-time  
 3. **Enhanced Logging** → Rich contextual data written to log files
-4. **Analysis Request** → User asks RecapMCP for productivity insights
-5. **Log Processing** → RecapMCP reads and analyzes enhanced log data
-6. **Intelligent Summary** → Contextual recap with detected intentions and evidence
+4. **Simple Request** → User types `recap` (no parameters needed)
+5. **Intelligent Analysis** → RecapMCP v3.0.0 reads enhanced logs and adapts output
+6. **Instant Recovery** → Context-aware summary with actionable commands
 
 ### Installation Strategy
 
 - **Enhanced Logging Only**: Install just DesktopCommanderMCP-Recap for intent detection in logs
-- **Complete Intelligence**: Install both repositories for full productivity analysis system
-- **Recommended**: Install both for maximum insights and productivity understanding
+- **Complete Intelligence**: Install both repositories for instant work recovery
+- **Recommended**: Install both - enhanced logging + RecapMCP v3.0.0 for zero-configuration productivity
 
 ## 🤝 Collaboration Opportunity
 
@@ -392,4 +399,4 @@ This enhancement maintains the same license as the original DesktopCommanderMCP 
 
 **Transform your development activity tracking into intelligent productivity analysis that understands your intentions.** ✨
 
-*Enhanced DesktopCommanderMCP v2.0 with revolutionary intent detection + [RecapMCP](https://github.com/ehukaimedia/recap) for complete productivity intelligence!*
+*Enhanced DesktopCommanderMCP v2.0 with revolutionary intent detection + [RecapMCP v3.0.0](https://github.com/ehukaimedia/recap) for instant, zero-configuration work recovery!*

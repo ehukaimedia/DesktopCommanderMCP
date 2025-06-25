@@ -99,6 +99,53 @@ interface IntentSignals {
 }
 
 /**
+ * Operation chain tracking for recovery mode
+ */
+interface OperationChain {
+  id: string;
+  sessionId: string;
+  intentCategory: string;
+  startTime: Date;
+  lastUpdateTime: Date;
+  description: string;
+  tools: Array<{
+    name: string;
+    timestamp: Date;
+    status: 'complete' | 'pending';
+    target?: string;
+  }>;
+  requiredVerifications: string[];
+  completionPercentage: number;
+}
+
+/**
+ * Search evolution tracking
+ */
+interface SearchEvolution {
+  id: string;
+  patterns: Array<{
+    query: string;
+    timestamp: Date;
+    resultCount?: number;
+    refinementReason?: string;
+  }>;
+  conclusion?: string;
+}
+
+/**
+ * File activity metrics for recovery
+ */
+interface FileActivityMetrics {
+  path: string;
+  accessCount: number;
+  readCount: number;
+  writeCount: number;
+  lastAccessed: Date;
+  category: 'focus' | 'reference' | 'config' | 'test';
+  relatedFiles: string[];
+}
+
+/**
  * Enhanced context state with intent detection capabilities
  * 
  * This interface extends the basic context tracking to include sophisticated
@@ -119,6 +166,19 @@ interface ContextState {
   recentArgs: any[]; // Store recent arguments for cross-call pattern detection
   intentSignals: IntentSignals[]; // Historical intent signals for refinement
   workPattern: 'reactive' | 'proactive' | 'investigative' | 'maintenance';
+  
+  // Recovery mode enhancements
+  operationChains: Map<string, OperationChain>;
+  searchEvolutions: Map<string, SearchEvolution>;
+  fileMetrics: Map<string, FileActivityMetrics>;
+  codeChanges: Array<{
+    file: string;
+    timestamp: Date;
+    before: string;
+    after: string;
+    pattern: string;
+  }>;
+  pendingTests: Set<string>;
 }
 
 let contextState: ContextState = {
@@ -129,7 +189,13 @@ let contextState: ContextState = {
   // Intent detection state
   recentArgs: [],
   intentSignals: [],
-  workPattern: 'proactive'
+  workPattern: 'proactive',
+  // Recovery mode enhancements
+  operationChains: new Map(),
+  searchEvolutions: new Map(),
+  fileMetrics: new Map(),
+  codeChanges: [],
+  pendingTests: new Set()
 };
 
 // Session timeout (15 minutes of inactivity starts new session)
@@ -689,6 +755,181 @@ function detectIntentSignals(
 }
 
 /**
+ * Update operation chains for recovery tracking
+ */
+function updateOperationChains(toolName: string, args: any, intent: any): void {
+  const chains = contextState.operationChains;
+  
+  // Check if this continues an existing chain
+  let activeChain: OperationChain | undefined;
+  for (const [id, chain] of chains) {
+    const timeSinceUpdate = Date.now() - chain.lastUpdateTime.getTime();
+    if (timeSinceUpdate < 10 * 60 * 1000) { // 10 minutes
+      activeChain = chain;
+      break;
+    }
+  }
+  
+  if (!activeChain) {
+    // Start new chain
+    const chainId = `${contextState.sessionId}-${Date.now().toString(36)}`;
+    activeChain = {
+      id: chainId,
+      sessionId: contextState.sessionId!,
+      intentCategory: intent?.category || 'unknown',
+      startTime: new Date(),
+      lastUpdateTime: new Date(),
+      description: intent?.likely_goal || 'General development',
+      tools: [],
+      requiredVerifications: [],
+      completionPercentage: 0
+    };
+    chains.set(chainId, activeChain);
+  }
+  
+  // Add tool to chain
+  const filePaths = extractFilePaths(args);
+  const target = filePaths.length > 0 ? filePaths[0] : undefined;
+  
+  activeChain.tools.push({
+    name: toolName,
+    timestamp: new Date(),
+    status: 'complete',
+    target
+  });
+  
+  // Update verification requirements
+  if (toolName === 'edit_block' || toolName === 'write_file') {
+    if (target) {
+      activeChain.requiredVerifications.push(`test:${target}`);
+      contextState.pendingTests.add(target);
+    }
+  }
+  
+  // Clear verifications if tests run
+  if (toolName === 'execute_command' && args?.command?.includes('test')) {
+    activeChain.requiredVerifications = activeChain.requiredVerifications
+      .filter(v => !v.includes('test'));
+    contextState.pendingTests.clear();
+  }
+  
+  // Calculate completion
+  activeChain.lastUpdateTime = new Date();
+  const hasEdits = activeChain.tools.some(t => t.name === 'edit_block' || t.name === 'write_file');
+  const hasTests = activeChain.tools.some(t => t.name === 'execute_command' && t.target?.includes('test'));
+  activeChain.completionPercentage = hasTests ? 100 : hasEdits ? 80 : 50;
+}
+
+/**
+ * Track search pattern evolution
+ */
+function trackSearchEvolution(pattern: string): void {
+  let evolution: SearchEvolution | undefined;
+  
+  // Find related evolution
+  for (const [id, evo] of contextState.searchEvolutions) {
+    if (evo.patterns.length > 0) {
+      const lastPattern = evo.patterns[evo.patterns.length - 1];
+      // Check if patterns are related
+      if (pattern.includes(lastPattern.query) || lastPattern.query.includes(pattern)) {
+        evolution = evo;
+        break;
+      }
+    }
+  }
+  
+  if (!evolution) {
+    evolution = {
+      id: `search-${Date.now().toString(36)}`,
+      patterns: []
+    };
+    contextState.searchEvolutions.set(evolution.id, evolution);
+  }
+  
+  // Determine refinement reason
+  let refinementReason = '';
+  if (evolution.patterns.length > 0) {
+    const lastQuery = evolution.patterns[evolution.patterns.length - 1].query;
+    if (pattern.length > lastQuery.length) {
+      refinementReason = 'Narrowing search';
+    } else if (pattern.includes(' ') && !lastQuery.includes(' ')) {
+      refinementReason = 'Adding context';
+    } else {
+      refinementReason = 'Refining terms';
+    }
+  }
+  
+  evolution.patterns.push({
+    query: pattern,
+    timestamp: new Date(),
+    refinementReason
+  });
+}
+
+/**
+ * Update file activity metrics
+ */
+function updateFileMetrics(filePath: string, toolName: string): void {
+  let metrics = contextState.fileMetrics.get(filePath);
+  
+  if (!metrics) {
+    const ext = path.extname(filePath).toLowerCase();
+    let category: 'focus' | 'reference' | 'config' | 'test' = 'focus';
+    
+    if (filePath.includes('test') || filePath.includes('spec')) category = 'test';
+    else if (ext === '.json' || ext === '.yml' || ext === '.yaml' || filePath.includes('config')) category = 'config';
+    else if (filePath.includes('node_modules')) category = 'reference';
+    
+    metrics = {
+      path: filePath,
+      accessCount: 0,
+      readCount: 0,
+      writeCount: 0,
+      lastAccessed: new Date(),
+      category,
+      relatedFiles: []
+    };
+    contextState.fileMetrics.set(filePath, metrics);
+  }
+  
+  metrics.accessCount++;
+  metrics.lastAccessed = new Date();
+  
+  if (toolName === 'read_file' || toolName === 'read_multiple_files') {
+    metrics.readCount++;
+  } else if (toolName === 'write_file' || toolName === 'edit_block') {
+    metrics.writeCount++;
+  }
+}
+
+/**
+ * Extract code change context
+ */
+function extractCodeChangeContext(args: any): any {
+  if (!args.old_string || !args.new_string) return null;
+  
+  const changeSize = args.new_string.length - args.old_string.length;
+  const addedCode = changeSize > 0 ? args.new_string.substring(args.old_string.length) : '';
+  
+  // Detect defensive patterns
+  const isDefensive = /if\s*\(\s*!|typeof\s+\w+\s*===|try\s*{/.test(addedCode);
+  
+  // Detect code pattern
+  let pattern = 'general';
+  if (addedCode.includes('if') && addedCode.includes('return')) pattern = 'validation';
+  else if (addedCode.includes('function')) pattern = 'function';
+  else if (addedCode.includes('class')) pattern = 'class';
+  else if (addedCode.includes('import')) pattern = 'import';
+  
+  return {
+    changeSize,
+    pattern,
+    isDefensive,
+    operation: changeSize > 0 ? 'expand' : changeSize < 0 ? 'reduce' : 'modify'
+  };
+}
+
+/**
  * Enhanced tool call tracking with intelligent intent detection
  * 
  * This is the main function that transforms DesktopCommanderMCP from basic tool tracking
@@ -782,6 +1023,44 @@ export async function trackToolCall(toolName: string, args?: unknown): Promise<v
       contextState.recentArgs.push(args);
       if (contextState.recentArgs.length > MAX_RECENT_ARGS) {
         contextState.recentArgs.shift();
+      }
+    }
+    
+    // ENHANCED RECOVERY MODE TRACKING
+    // Track operation chains with intent context
+    const latestIntent = contextState.intentSignals.length > 0 ? 
+      contextState.intentSignals[contextState.intentSignals.length - 1] : null;
+    updateOperationChains(toolName, args, latestIntent);
+    
+    // Track search evolution
+    if ((toolName === 'search_code' || toolName === 'search_files') && args && 
+        typeof args === 'object' && 'pattern' in args && args.pattern) {
+      trackSearchEvolution(args.pattern as string);
+    }
+    
+    // Enhanced file metrics
+    const enhancedFilePaths = extractFilePaths(args);
+    for (const filePath of enhancedFilePaths) {
+      updateFileMetrics(filePath, toolName);
+    }
+    
+    // Track code changes for recovery
+    if (toolName === 'edit_block' && args && typeof args === 'object' && 
+        'old_string' in args && 'new_string' in args && 'file_path' in args) {
+      const changeContext = extractCodeChangeContext(args);
+      if (changeContext) {
+        contextState.codeChanges.push({
+          file: args.file_path as string,
+          timestamp: new Date(),
+          before: (args.old_string as string).substring(0, 200),
+          after: (args.new_string as string).substring(0, 200),
+          pattern: changeContext.pattern
+        });
+        
+        // Keep only last 10 changes
+        if (contextState.codeChanges.length > 10) {
+          contextState.codeChanges.shift();
+        }
       }
     }
     
@@ -915,6 +1194,79 @@ export async function trackToolCall(toolName: string, args?: unknown): Promise<v
         contextInfo.workPattern = intentSignal.category;
         contextInfo.intentEvidence = intentSignal.evidence;
       }
+    }
+    
+    // ENHANCED RECOVERY MODE CONTEXT
+    // Add operation chain status
+    const activeChains = Array.from(contextState.operationChains.values())
+      .filter(c => Date.now() - c.lastUpdateTime.getTime() < 10 * 60 * 1000);
+    
+    if (activeChains.length > 0) {
+      contextInfo.operationChains = activeChains.map(chain => ({
+        id: chain.id,
+        purpose: chain.description,
+        progress: `${chain.completionPercentage}%`,
+        toolSequence: chain.tools.map(t => t.name).join('→'),
+        pendingSteps: chain.requiredVerifications
+      }));
+    }
+    
+    // Add search evolution
+    const recentSearchEvolution = Array.from(contextState.searchEvolutions.values())
+      .filter(e => e.patterns.length > 1)
+      .slice(-1)[0];
+      
+    if (recentSearchEvolution) {
+      contextInfo.searchEvolution = {
+        patterns: recentSearchEvolution.patterns.map(p => p.query),
+        refinements: recentSearchEvolution.patterns
+          .filter(p => p.refinementReason)
+          .map(p => p.refinementReason)
+      };
+    }
+    
+    // Add file heatmap
+    const fileHeatmap = Array.from(contextState.fileMetrics.entries())
+      .sort((a, b) => b[1].accessCount - a[1].accessCount)
+      .slice(0, 5)
+      .map(([filePath, metrics]) => ({
+        file: path.basename(filePath),
+        accesses: metrics.accessCount,
+        category: metrics.category,
+        operations: `R:${metrics.readCount} W:${metrics.writeCount}`
+      }));
+      
+    if (fileHeatmap.length > 0) {
+      contextInfo.fileHeatmap = fileHeatmap;
+    }
+    
+    // Add pending tests
+    if (contextState.pendingTests.size > 0) {
+      contextInfo.pendingTests = Array.from(contextState.pendingTests)
+        .map(f => path.basename(f));
+    }
+    
+    // Add code change summary for edit operations
+    if (toolName === 'edit_block' && args && typeof args === 'object') {
+      const changeContext = extractCodeChangeContext(args);
+      if (changeContext) {
+        contextInfo.codeChange = {
+          size: `${changeContext.changeSize > 0 ? '+' : ''}${changeContext.changeSize}`,
+          pattern: changeContext.pattern,
+          defensive: changeContext.isDefensive,
+          operation: changeContext.operation
+        };
+      }
+    }
+    
+    // Add recent code changes summary
+    if (contextState.codeChanges.length > 0) {
+      const recentChanges = contextState.codeChanges.slice(-3);
+      contextInfo.recentEdits = recentChanges.map(change => ({
+        file: path.basename(change.file),
+        pattern: change.pattern,
+        age: `${Math.round((Date.now() - change.timestamp.getTime()) / 1000 / 60)}m ago`
+      }));
     }
     
     // Format the enhanced log entry
